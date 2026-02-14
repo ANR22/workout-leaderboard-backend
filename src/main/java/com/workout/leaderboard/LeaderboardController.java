@@ -10,23 +10,34 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workout.leaderboard.service.LeaderboardService;
+
 @RestController
 public class LeaderboardController {
     
+    private final LeaderboardService leaderboardService;
+
+    public LeaderboardController(LeaderboardService leaderboardService) {
+        this.leaderboardService = leaderboardService;
+    }
+    
     @PostMapping("/submit-score")
     public ResponseEntity<?> recieveEvent(@RequestBody Map<String, Object> payload) {
-        return ResponseEntity.accepted().body(Map.of("status", "ACCEPTED"));
+        Map<String, Object> result = leaderboardService.submitScore(payload);
+        return ResponseEntity.accepted().body(result);
     }
 
 
     @GetMapping("/leaderboard/challenge/{challengeId}")
-    public ResponseEntity<?> getLeaderboard(@PathVariable String challengeId, @RequestParam int limit) {
-        return ResponseEntity.ok(Map.of("challengeId", challengeId, "leaderboard", "mock leaderboard data"));
+    public ResponseEntity<?> getLeaderboard(@PathVariable Long challengeId, @RequestParam(required = false) int limit) {
+        Map<String, Object> result = leaderboardService.getLeaderboard(challengeId);
+        return ResponseEntity.ok(result);
     }
 
 
     @GetMapping("/leaderboard/challenge/{challengeId}/user/{userId}")
-    public ResponseEntity<?> getUserLeaderboard(@PathVariable String challengeId, @PathVariable String userId) {
-        return ResponseEntity.ok(Map.of("challengeId", challengeId, "userId", userId, "userLeaderboard", "mock user leaderboard data"));
+    public ResponseEntity<?> getUserLeaderboard(@PathVariable Long challengeId, @PathVariable Long userId) {
+        Map<String, Object> result = leaderboardService.getUserLeaderboard(challengeId, userId);
+        return ResponseEntity.ok(result);
     }
 }
