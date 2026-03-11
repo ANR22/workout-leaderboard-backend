@@ -1,12 +1,13 @@
 package com.workout.leaderboard.service;
 
+import com.workout.leaderboard.dto.response.AuthResponse;
 import com.workout.leaderboard.entity.User;
+import com.workout.leaderboard.exception.ConflictException;
 import com.workout.leaderboard.repository.UserRepository;
 import com.workout.leaderboard.security.JwtTokenProvider;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -24,7 +25,7 @@ public class AuthService {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
-    public Optional<Map<String, Object>> login(String email, String password) {
+    public Optional<AuthResponse> login(String email, String password) {
         Optional<User> userOptional = userRepository.findByEmail(email);
 
         if (userOptional.isEmpty()) {
@@ -37,22 +38,12 @@ public class AuthService {
         }
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getFullName());
-
-        return Optional.of(Map.of(
-                "status", "SUCCESS",
-            "userId", user.getUserId(),
-            "fullName", user.getFullName(),
-                "token", token,
-                "message", "Login successful"
-        ));
+        return Optional.of(new AuthResponse(user.getUserId(), user.getFullName(), token, "Login successful"));
     }
 
-    public Map<String, Object> signup(String fullName, String email, String password) {
+    public AuthResponse signup(String fullName, String email, String password) {
         if (userRepository.findByEmail(email).isPresent()) {
-            return Map.of(
-                    "status", "ERROR",
-                    "message", "Email already exists"
-            );
+            throw new ConflictException("Email already exists");
         }
 
         User user = new User();
@@ -62,13 +53,6 @@ public class AuthService {
 
         User savedUser = userRepository.save(user);
         String token = jwtTokenProvider.generateToken(savedUser.getEmail(), savedUser.getFullName());
-
-        return Map.of(
-                "status", "SUCCESS",
-            "userId", savedUser.getUserId(),
-            "fullName", savedUser.getFullName(),
-                "token", token,
-                "message", "Signup successful. Account created."
-        );
+        return new AuthResponse(savedUser.getUserId(), savedUser.getFullName(), token, "Signup successful. Account created.");
     }
 }

@@ -1,10 +1,19 @@
 package com.workout.leaderboard.service;
 
+import com.workout.leaderboard.dto.request.SubmitScoreRequest;
+import com.workout.leaderboard.dto.response.ChallengeResponse;
+import com.workout.leaderboard.dto.response.LeaderboardEntryResponse;
+import com.workout.leaderboard.dto.response.LeaderboardResponse;
+import com.workout.leaderboard.dto.response.SubmitScoreResponse;
+import com.workout.leaderboard.dto.response.UserLeaderboardEntryResponse;
+import com.workout.leaderboard.dto.response.UserLeaderboardResponse;
 import com.workout.leaderboard.entity.Challenge;
 import com.workout.leaderboard.entity.ChallengeEvent;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotal;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotalId;
 import com.workout.leaderboard.entity.Metric;
+import com.workout.leaderboard.exception.BadRequestException;
+import com.workout.leaderboard.exception.ResourceNotFoundException;
 import com.workout.leaderboard.repository.ChallengeEventRepository;
 import com.workout.leaderboard.repository.ChallengeRepository;
 import com.workout.leaderboard.repository.ChallengeUserMetricTotalRepository;
@@ -12,13 +21,12 @@ import com.workout.leaderboard.repository.MetricRepository;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class LeaderboardService {
@@ -59,69 +67,49 @@ public class LeaderboardService {
      *     "value": 100.0
      * }
      */
-    public Map<String, Object> submitScore(Map<String, Object> payload) {
-        try {
-            Long eventId = Long.parseLong(payload.get("eventId").toString());
-            Long challengeId = Long.parseLong(payload.get("challengeId").toString());
-            Long userId = Long.parseLong(payload.get("userId").toString());
-            Long metricId = Long.parseLong(payload.get("metricId").toString());
-            Double value = Double.parseDouble(payload.get("value").toString());
+    public SubmitScoreResponse submitScore(SubmitScoreRequest request) {
+        validateSubmitScoreRequest(request);
 
-            // Step 1: Fetch and validate references
-            Challenge challenge = challengeRepository.findById(challengeId)
-                    .orElseThrow(() -> new RuntimeException("Challenge not found with id: " + challengeId));
+        Long eventId = request.getEventId();
+        Long challengeId = request.getChallengeId();
+        Long userId = request.getUserId();
+        Long metricId = request.getMetricId();
+        Double value = request.getValue();
 
-            Metric metric = metricRepository.findById(metricId)
-                    .orElseThrow(() -> new RuntimeException("Metric not found with id: " + metricId));
+        Challenge challenge = getChallengeOrThrow(challengeId);
 
-            // Step 2: Save the event to ChallengeEvent table
-            ChallengeEvent event = new ChallengeEvent(challenge, userId, metric, value, LocalDateTime.now());
-            event.setEventId(eventId);
-            ChallengeEvent savedEvent = challengeEventRepository.save(event);
+        Metric metric = metricRepository.findById(metricId)
+            .orElseThrow(() -> new ResourceNotFoundException("Metric not found with id: " + metricId));
 
-            // Step 3: Calculate aggregated score for user in challenge
-            // Query all events for this user and metric in the challenge
-            List<ChallengeEvent> allUserMetricEvents = challengeEventRepository.findByChallengeidAndUserIdAndMetricId(
-                    challengeId, userId, metricId
-            );
-            Double aggregatedScore = allUserMetricEvents.stream()
-                    .mapToDouble(ChallengeEvent::getMetricValue)
-                    .sum();
+        ChallengeEvent event = new ChallengeEvent(challenge, userId, metric, value, LocalDateTime.now());
+        event.setEventId(eventId);
+        ChallengeEvent savedEvent = challengeEventRepository.save(event);
 
-            // Step 4: Update the ChallengeUserMetricTotal record
-            ChallengeUserMetricTotalId id = new ChallengeUserMetricTotalId(challengeId, userId, metricId);
-            Optional<ChallengeUserMetricTotal> existingTotal = challengeUserMetricTotalRepository.findById(id);
-            
-            ChallengeUserMetricTotal metricTotal;
-            if (existingTotal.isPresent()) {
-                metricTotal = existingTotal.get();
-                metricTotal.setTotalValue(aggregatedScore);
-                metricTotal.setUpdatedAt(LocalDateTime.now());
-            } else {
-                metricTotal = new ChallengeUserMetricTotal(challengeId, userId, metric, aggregatedScore, LocalDateTime.now());
-            }
-            challengeUserMetricTotalRepository.save(metricTotal);
+        List<ChallengeEvent> allUserMetricEvents = challengeEventRepository.findByChallengeidAndUserIdAndMetricId(
+            challengeId, userId, metricId
+        );
+        Double aggregatedScore = allUserMetricEvents.stream()
+            .mapToDouble(ChallengeEvent::getMetricValue)
+            .sum();
 
-            // Step 5: Update Redis sorted set for leaderboard performance
-            // Key format: "challenge:{challengeId}:leaderboard"
-            // Member format: "{userId}:{metricId}" (user:metric combination)
-            // Score: aggregated metric value
-            String redisKey = "challenge:" + challengeId + ":leaderboard";
-            String member = userId + ":" + metricId;
-            redisTemplate.opsForZSet().add(redisKey, member, aggregatedScore);
+        ChallengeUserMetricTotalId id = new ChallengeUserMetricTotalId(challengeId, userId, metricId);
+        var existingTotal = challengeUserMetricTotalRepository.findById(id);
 
-            return Map.of(
-                    "status", "SUCCESS",
-                    "eventId", savedEvent.getEventId(),
-                    "aggregatedScore", aggregatedScore,
-                    "message", "Score submitted successfully"
-            );
-        } catch (Exception e) {
-            return Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            );
+        ChallengeUserMetricTotal metricTotal;
+        if (existingTotal.isPresent()) {
+            metricTotal = existingTotal.get();
+            metricTotal.setTotalValue(aggregatedScore);
+            metricTotal.setUpdatedAt(LocalDateTime.now());
+        } else {
+            metricTotal = new ChallengeUserMetricTotal(challengeId, userId, metric, aggregatedScore, LocalDateTime.now());
         }
+        challengeUserMetricTotalRepository.save(metricTotal);
+
+        String redisKey = "challenge:" + challengeId + ":leaderboard";
+        String member = userId + ":" + metricId;
+        redisTemplate.opsForZSet().add(redisKey, member, aggregatedScore);
+
+        return new SubmitScoreResponse(savedEvent.getEventId(), aggregatedScore, "Score submitted successfully");
     }
 
     /**
@@ -132,91 +120,71 @@ public class LeaderboardService {
      * @param challengeId the challenge to fetch leaderboard for
      * @return leaderboard data with rankings
      */
-    public Map<String, Object> getLeaderboard(Long challengeId) {
-        try {
-            String redisKey = "challenge:" + challengeId + ":leaderboard";
-            
-            // Fetch all members from Redis sorted set in reverse score order (highest score first)
-            Set<ZSetOperations.TypedTuple<Object>> leaderboardSet = redisTemplate.opsForZSet()
-                    .reverseRangeByScoreWithScores(redisKey, 0, Double.MAX_VALUE);
-            
-            List<Map<String, Object>> leaderboard = new ArrayList<>();
-            int rank = 1;
-            
-            if (leaderboardSet != null) {
-                for (ZSetOperations.TypedTuple<Object> entry : leaderboardSet) {
-                    String member = (String) entry.getValue();
-                    Double score = entry.getScore();
-                    
-                    String[] parts = member.split(":");
-                    Long userId = Long.parseLong(parts[0]);
-                    Long metricId = Long.parseLong(parts[1]);
-                    
-                    Map<String, Object> leaderboardEntry = new HashMap<>();
-                    leaderboardEntry.put("rank", rank);
-                    leaderboardEntry.put("userId", userId);
-                    leaderboardEntry.put("metricId", metricId);
-                    leaderboardEntry.put("aggregatedScore", score);
-                    
-                    leaderboard.add(leaderboardEntry);
-                    rank++;
-                }
+    public LeaderboardResponse getLeaderboard(Long challengeId) {
+        getChallengeOrThrow(challengeId);
+        String redisKey = "challenge:" + challengeId + ":leaderboard";
+
+        Set<ZSetOperations.TypedTuple<Object>> leaderboardSet = redisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(redisKey, 0, Double.MAX_VALUE);
+
+        List<LeaderboardEntryResponse> leaderboard = new ArrayList<>();
+        int rank = 1;
+
+        if (leaderboardSet != null) {
+            for (ZSetOperations.TypedTuple<Object> entry : leaderboardSet) {
+                String member = (String) entry.getValue();
+                Double score = entry.getScore();
+
+                String[] parts = member.split(":");
+                Long userId = Long.parseLong(parts[0]);
+                Long metricId = Long.parseLong(parts[1]);
+                leaderboard.add(new LeaderboardEntryResponse(rank, userId, metricId, score));
+                rank++;
             }
-            
-            return Map.of(
-                    "status", "SUCCESS",
-                    "challengeId", challengeId,
-                    "leaderboard", leaderboard,
-                    "count", leaderboard.size()
-            );
-        } catch (Exception e) {
-            return Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            );
         }
+
+        return new LeaderboardResponse(challengeId, leaderboard);
     }
 
     /**
      * Gets the leaderboard data for a specific user in a specific challenge.
      * Returns ChallengeUserMetricTotal records for the given challengeId and userId.
      */
-    public Map<String, Object> getUserLeaderboard(Long challengeId, Long userId) {
-        try {
-            List<ChallengeUserMetricTotal> userLeaderboardData = challengeUserMetricTotalRepository.findByChallengeIdAndUserId(challengeId, userId);
-            
-            return Map.of(
-                    "status", "SUCCESS",
-                    "challengeId", challengeId,
-                    "userId", userId,
-                    "userLeaderboard", userLeaderboardData,
-                    "count", userLeaderboardData.size()
-            );
-        } catch (Exception e) {
-            return Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            );
-        }
+    public UserLeaderboardResponse getUserLeaderboard(Long challengeId, Long userId) {
+        getChallengeOrThrow(challengeId);
+        List<ChallengeUserMetricTotal> userLeaderboardData = challengeUserMetricTotalRepository.findByChallengeIdAndUserId(challengeId, userId);
+        List<UserLeaderboardEntryResponse> responseItems = userLeaderboardData.stream()
+                .map(UserLeaderboardEntryResponse::from)
+                .collect(Collectors.toList());
+        return new UserLeaderboardResponse(challengeId, userId, responseItems);
     }
 
     /**
      * Retrieves all challenges present in the system.
      * This simply delegates to the repository and wraps the result in a standard response map.
      */
-    public Map<String, Object> getAllChallenges() {
-        try {
-            List<Challenge> challenges = challengeRepository.findAll();
-            return Map.of(
-                    "status", "SUCCESS",
-                    "challenges", challenges,
-                    "count", challenges.size()
-            );
-        } catch (Exception e) {
-            return Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            );
+    public List<ChallengeResponse> getAllChallenges() {
+        return challengeRepository.findAll().stream()
+                .map(ChallengeResponse::from)
+                .collect(Collectors.toList());
+    }
+
+    private Challenge getChallengeOrThrow(Long challengeId) {
+        return challengeRepository.findById(challengeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Challenge not found with id: " + challengeId));
+    }
+
+    private void validateSubmitScoreRequest(SubmitScoreRequest request) {
+        if (request == null) {
+            throw new BadRequestException("request body is required");
+        }
+
+        if (request.getEventId() == null ||
+                request.getChallengeId() == null ||
+                request.getUserId() == null ||
+                request.getMetricId() == null ||
+                request.getValue() == null) {
+            throw new BadRequestException("eventId, challengeId, userId, metricId, and value are required");
         }
     }
 }

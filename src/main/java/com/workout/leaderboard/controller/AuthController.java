@@ -1,14 +1,16 @@
 package com.workout.leaderboard.controller;
 
+import com.workout.leaderboard.dto.request.LoginRequest;
+import com.workout.leaderboard.dto.request.SignupRequest;
+import com.workout.leaderboard.dto.response.AuthResponse;
+import com.workout.leaderboard.exception.BadRequestException;
+import com.workout.leaderboard.exception.UnauthorizedException;
 import com.workout.leaderboard.service.AuthService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/auth")
@@ -25,26 +27,15 @@ public class AuthController {
      * Checks user existence and password from database.
      */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
-        String email = request.get("email");
-        String password = request.get("password");
-
-        if (email == null || email.isBlank() || password == null || password.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "status", "ERROR",
-                    "message", "email and password are required"
-            ));
+    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+        if (request.getEmail() == null || request.getEmail().isBlank() ||
+                request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new BadRequestException("email and password are required");
         }
 
-        Optional<Map<String, Object>> loginResult = authService.login(email, password);
-        if (loginResult.isPresent()) {
-            return ResponseEntity.ok(loginResult.get());
-        }
-
-        return ResponseEntity.status(401).body(Map.of(
-                "status", "ERROR",
-                "message", "email or password does not match"
-        ));
+        AuthResponse loginResult = authService.login(request.getEmail(), request.getPassword())
+                .orElseThrow(() -> new UnauthorizedException("email or password does not match"));
+        return ResponseEntity.ok(loginResult);
     }
 
     /**
@@ -52,26 +43,14 @@ public class AuthController {
      * Creates user record and returns JWT token.
      */
     @PostMapping("/signup")
-    public ResponseEntity<?> signup(@RequestBody Map<String, String> request) {
-        String fullName = request.get("fullName");
-        String email = request.get("email");
-        String password = request.get("password");
-
-        // Validation
-        if (fullName == null || fullName.isEmpty() ||
-                email == null || email.isEmpty() ||
-                password == null || password.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "status", "ERROR",
-                    "message", "fullName, email, and password are required"
-            ));
+    public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request) {
+        if (request.getFullName() == null || request.getFullName().isBlank() ||
+                request.getEmail() == null || request.getEmail().isBlank() ||
+                request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new BadRequestException("fullName, email, and password are required");
         }
 
-        Map<String, Object> signupResult = authService.signup(fullName, email, password);
-        if ("ERROR".equals(signupResult.get("status"))) {
-            return ResponseEntity.badRequest().body(signupResult);
-        }
-
-        return ResponseEntity.ok(signupResult);
+        AuthResponse response = authService.signup(request.getFullName(), request.getEmail(), request.getPassword());
+        return ResponseEntity.ok(response);
     }
 }
