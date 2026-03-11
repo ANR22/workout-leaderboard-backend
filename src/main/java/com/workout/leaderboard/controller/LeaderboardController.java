@@ -1,4 +1,4 @@
-package com.workout.leaderboard;
+package com.workout.leaderboard.controller;
 
 import java.util.Map;
 
@@ -29,7 +29,7 @@ public class LeaderboardController {
 
 
     @GetMapping("/leaderboard/challenge/{challengeId}")
-    public ResponseEntity<?> getLeaderboard(@PathVariable Long challengeId, @RequestParam(required = false) int limit) {
+    public ResponseEntity<?> getLeaderboard(@PathVariable Long challengeId, @RequestParam(required = false) Integer limit) {
         Map<String, Object> result = leaderboardService.getLeaderboard(challengeId);
         return ResponseEntity.ok(result);
     }
@@ -40,4 +40,12 @@ public class LeaderboardController {
         Map<String, Object> result = leaderboardService.getUserLeaderboard(challengeId, userId);
         return ResponseEntity.ok(result);
     }
+
+    @GetMapping("/leaderboard/challenges")
+    public ResponseEntity<?> getAllChallenges() {
+        Map<String, Object> result = leaderboardService.getAllChallenges();
+        return ResponseEntity.ok(result);
+    }
+
+    
 }

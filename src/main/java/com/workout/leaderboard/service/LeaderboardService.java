@@ -199,4 +199,24 @@ public class LeaderboardService {
             );
         }
     }
+
+    /**
+     * Retrieves all challenges present in the system.
+     * This simply delegates to the repository and wraps the result in a standard response map.
+     */
+    public Map<String, Object> getAllChallenges() {
+        try {
+            List<Challenge> challenges = challengeRepository.findAll();
+            return Map.of(
+                    "status", "SUCCESS",
+                    "challenges", challenges,
+                    "count", challenges.size()
+            );
+        } catch (Exception e) {
+            return Map.of(
+                    "status", "ERROR",
+                    "message", e.getMessage()
+            );
+        }
+    }
 }
