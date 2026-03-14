@@ -33,6 +33,11 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        if (metricRepository.count() > 0 || challengeRepository.count() > 0 || challengeEventRepository.count() > 0) {
+            System.out.println("Seed data already exists. Skipping DataInitializer.");
+            return;
+        }
+
         initializeMetrics();
         initializeChallenges();
         initializeChallengeEvents();
@@ -59,8 +64,8 @@ public class DataInitializer implements CommandLineRunner {
         Challenge challenge1 = new Challenge(
                 "January Steps Challenge",
                 "Walk 100,000 steps in January",
-                now.minusDays(14),
-                now.plusDays(16),
+                now.minusDays(50),
+                now.minusDays(20),
                 now
         );
 

@@ -13,6 +13,9 @@ public interface ChallengeUserMetricTotalRepository extends JpaRepository<Challe
     
     @Query("SELECT c FROM ChallengeUserMetricTotal c WHERE c.id.challengeId = :challengeId")
     List<ChallengeUserMetricTotal> findByChallengeId(@Param("challengeId") Long challengeId);
+
+    @Query("SELECT c FROM ChallengeUserMetricTotal c WHERE c.id.challengeId = :challengeId ORDER BY c.totalValue DESC")
+    List<ChallengeUserMetricTotal> findByChallengeIdOrderByTotalValueDesc(@Param("challengeId") Long challengeId);
     
     @Query("SELECT c FROM ChallengeUserMetricTotal c WHERE c.id.challengeId = :challengeId AND c.id.userId = :userId")
     List<ChallengeUserMetricTotal> findByChallengeIdAndUserId(@Param("challengeId") Long challengeId, @Param("userId") Long userId);

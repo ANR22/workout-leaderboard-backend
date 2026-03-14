@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -130,40 +131,96 @@ public class LeaderboardService {
         getChallengeOrThrow(challengeId);
         String redisKey = "challenge:" + challengeId + ":leaderboard";
 
-        Set<ZSetOperations.TypedTuple<Object>> leaderboardSet = redisTemplate.opsForZSet()
-                .reverseRangeByScoreWithScores(redisKey, 0, Double.MAX_VALUE);
+        try {
+            Set<ZSetOperations.TypedTuple<Object>> leaderboardSet = redisTemplate.opsForZSet()
+                    .reverseRangeByScoreWithScores(redisKey, 0, Double.MAX_VALUE);
 
+            if (leaderboardSet != null && !leaderboardSet.isEmpty()) {
+                return new LeaderboardResponse(challengeId, mapRedisLeaderboardEntries(leaderboardSet));
+            }
+        } catch (Exception ignored) {
+            // Redis can be unavailable; fallback to DB and continue serving leaderboard.
+        }
+
+        List<ChallengeUserMetricTotal> dbTotals =
+                challengeUserMetricTotalRepository.findByChallengeIdOrderByTotalValueDesc(challengeId);
+        List<LeaderboardEntryResponse> leaderboard = mapDatabaseLeaderboardEntries(dbTotals);
+
+        rebuildRedisLeaderboard(redisKey, dbTotals);
+
+        return new LeaderboardResponse(challengeId, leaderboard);
+    }
+
+    private List<LeaderboardEntryResponse> mapRedisLeaderboardEntries(Set<ZSetOperations.TypedTuple<Object>> leaderboardSet) {
         List<LeaderboardEntryResponse> leaderboard = new ArrayList<>();
         int rank = 1;
 
-        Map<Long, String> userNamesById = Map.of();
-        if (leaderboardSet != null && !leaderboardSet.isEmpty()) {
-            List<Long> userIds = leaderboardSet.stream()
+        List<Long> userIds = leaderboardSet.stream()
                 .map(entry -> ((String) entry.getValue()).split(":"))
                 .filter(parts -> parts.length >= 2)
                 .map(parts -> Long.parseLong(parts[0]))
                 .distinct()
                 .collect(Collectors.toList());
 
-            userNamesById = userRepository.findAllById(userIds).stream()
+        Map<Long, String> userNamesById = getUserNamesById(userIds);
+
+        for (ZSetOperations.TypedTuple<Object> entry : leaderboardSet) {
+            String member = (String) entry.getValue();
+            Double score = entry.getScore();
+
+            String[] parts = member.split(":");
+            Long userId = Long.parseLong(parts[0]);
+            Long metricId = Long.parseLong(parts[1]);
+            String fullName = userNamesById.getOrDefault(userId, "Unknown User");
+            leaderboard.add(new LeaderboardEntryResponse(rank, userId, fullName, metricId, score));
+            rank++;
+        }
+
+        return leaderboard;
+    }
+
+    private List<LeaderboardEntryResponse> mapDatabaseLeaderboardEntries(List<ChallengeUserMetricTotal> dbTotals) {
+        List<LeaderboardEntryResponse> leaderboard = new ArrayList<>();
+        int rank = 1;
+
+        List<Long> userIds = dbTotals.stream()
+                .map(ChallengeUserMetricTotal::getUserId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> userNamesById = getUserNamesById(userIds);
+
+        for (ChallengeUserMetricTotal total : dbTotals) {
+            Long userId = total.getUserId();
+            Long metricId = total.getMetricId();
+            Double score = total.getTotalValue();
+            String fullName = userNamesById.getOrDefault(userId, "Unknown User");
+            leaderboard.add(new LeaderboardEntryResponse(rank, userId, fullName, metricId, score));
+            rank++;
+        }
+
+        return leaderboard;
+    }
+
+    private Map<Long, String> getUserNamesById(List<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getUserId, User::getFullName));
-        }
+    }
 
-        if (leaderboardSet != null) {
-            for (ZSetOperations.TypedTuple<Object> entry : leaderboardSet) {
-                String member = (String) entry.getValue();
-                Double score = entry.getScore();
-
-                String[] parts = member.split(":");
-                Long userId = Long.parseLong(parts[0]);
-                Long metricId = Long.parseLong(parts[1]);
-                String fullName = userNamesById.getOrDefault(userId, "Unknown User");
-                leaderboard.add(new LeaderboardEntryResponse(rank, userId, fullName, metricId, score));
-                rank++;
+    private void rebuildRedisLeaderboard(String redisKey, List<ChallengeUserMetricTotal> dbTotals) {
+        try {
+            redisTemplate.delete(redisKey);
+            ZSetOperations<String, Object> zSetOperations = redisTemplate.opsForZSet();
+            for (ChallengeUserMetricTotal total : dbTotals) {
+                String member = total.getUserId() + ":" + total.getMetricId();
+                zSetOperations.add(redisKey, member, total.getTotalValue());
             }
+        } catch (Exception ignored) {
+            // Best-effort cache rebuild. DB remains source of truth.
         }
-
-        return new LeaderboardResponse(challengeId, leaderboard);
     }
 
     /**

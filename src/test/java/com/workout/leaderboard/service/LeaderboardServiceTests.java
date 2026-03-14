@@ -207,6 +207,76 @@ class LeaderboardServiceTests {
         assertEquals("Unknown User", response.getLeaderboard().get(0).getFullName());
     }
 
+        @Test
+        void getLeaderboardFallsBackToDatabaseWhenRedisKeyIsMissing() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+
+        Challenge challenge = challenge(10L, "Summer Challenge");
+        when(challengeRepository.findById(10L)).thenReturn(Optional.of(challenge));
+        when(zSetOperations.reverseRangeByScoreWithScores("challenge:10:leaderboard", 0, Double.MAX_VALUE))
+            .thenReturn(Set.of());
+
+        Metric metric = metric(30L, "distance");
+        ChallengeUserMetricTotal total1 = new ChallengeUserMetricTotal();
+        total1.setId(new ChallengeUserMetricTotalId(10L, 20L, 30L));
+        total1.setMetric(metric);
+        total1.setTotalValue(95.0);
+        total1.setUpdatedAt(LocalDateTime.now());
+
+        ChallengeUserMetricTotal total2 = new ChallengeUserMetricTotal();
+        total2.setId(new ChallengeUserMetricTotalId(10L, 21L, 30L));
+        total2.setMetric(metric);
+        total2.setTotalValue(88.0);
+        total2.setUpdatedAt(LocalDateTime.now());
+
+        when(challengeUserMetricTotalRepository.findByChallengeIdOrderByTotalValueDesc(10L))
+            .thenReturn(List.of(total1, total2));
+        when(userRepository.findAllById(List.of(20L, 21L)))
+            .thenReturn(List.of(user(20L, "Alice Runner"), user(21L, "Bob Lifter")));
+
+        LeaderboardResponse response = leaderboardService.getLeaderboard(10L);
+
+        assertEquals(2, response.getCount());
+        assertEquals(20L, response.getLeaderboard().get(0).getUserId());
+        assertEquals("Alice Runner", response.getLeaderboard().get(0).getFullName());
+        assertEquals(95.0, response.getLeaderboard().get(0).getAggregatedScore());
+        assertEquals(21L, response.getLeaderboard().get(1).getUserId());
+        assertEquals("Bob Lifter", response.getLeaderboard().get(1).getFullName());
+        assertEquals(88.0, response.getLeaderboard().get(1).getAggregatedScore());
+
+        verify(redisTemplate).delete("challenge:10:leaderboard");
+        verify(zSetOperations).add("challenge:10:leaderboard", "20:30", 95.0);
+        verify(zSetOperations).add("challenge:10:leaderboard", "21:30", 88.0);
+        }
+
+        @Test
+        void getLeaderboardFallsBackToDatabaseWhenRedisIsDown() {
+        Challenge challenge = challenge(10L, "Summer Challenge");
+        when(challengeRepository.findById(10L)).thenReturn(Optional.of(challenge));
+        when(redisTemplate.opsForZSet()).thenThrow(new RuntimeException("Redis unavailable"));
+
+        Metric metric = metric(30L, "distance");
+        ChallengeUserMetricTotal total = new ChallengeUserMetricTotal();
+        total.setId(new ChallengeUserMetricTotalId(10L, 20L, 30L));
+        total.setMetric(metric);
+        total.setTotalValue(101.5);
+        total.setUpdatedAt(LocalDateTime.now());
+
+        when(challengeUserMetricTotalRepository.findByChallengeIdOrderByTotalValueDesc(10L))
+            .thenReturn(List.of(total));
+        when(userRepository.findAllById(List.of(20L)))
+            .thenReturn(List.of(user(20L, "Alice Runner")));
+        when(redisTemplate.delete("challenge:10:leaderboard"))
+            .thenThrow(new RuntimeException("Redis unavailable"));
+
+        LeaderboardResponse response = leaderboardService.getLeaderboard(10L);
+
+        assertEquals(1, response.getCount());
+        assertEquals(20L, response.getLeaderboard().get(0).getUserId());
+        assertEquals("Alice Runner", response.getLeaderboard().get(0).getFullName());
+        assertEquals(101.5, response.getLeaderboard().get(0).getAggregatedScore());
+        }
+
     @Test
     void getUserLeaderboardReturnsMappedEntriesForUser() {
         Challenge challenge = challenge(10L, "Summer Challenge");
