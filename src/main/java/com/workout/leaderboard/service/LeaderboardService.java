@@ -12,12 +12,14 @@ import com.workout.leaderboard.entity.ChallengeEvent;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotal;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotalId;
 import com.workout.leaderboard.entity.Metric;
+import com.workout.leaderboard.entity.User;
 import com.workout.leaderboard.exception.BadRequestException;
 import com.workout.leaderboard.exception.ResourceNotFoundException;
 import com.workout.leaderboard.repository.ChallengeEventRepository;
 import com.workout.leaderboard.repository.ChallengeRepository;
 import com.workout.leaderboard.repository.ChallengeUserMetricTotalRepository;
 import com.workout.leaderboard.repository.MetricRepository;
+import com.workout.leaderboard.repository.UserRepository;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -35,17 +38,20 @@ public class LeaderboardService {
     private final ChallengeUserMetricTotalRepository challengeUserMetricTotalRepository;
     private final MetricRepository metricRepository;
     private final ChallengeRepository challengeRepository;
+    private final UserRepository userRepository;
     private final RedisTemplate<String, Object> redisTemplate;
 
     public LeaderboardService(ChallengeEventRepository challengeEventRepository,
                             ChallengeUserMetricTotalRepository challengeUserMetricTotalRepository,
                             MetricRepository metricRepository,
                             ChallengeRepository challengeRepository,
+                            UserRepository userRepository,
                             RedisTemplate<String, Object> redisTemplate) {
         this.challengeEventRepository = challengeEventRepository;
         this.challengeUserMetricTotalRepository = challengeUserMetricTotalRepository;
         this.metricRepository = metricRepository;
         this.challengeRepository = challengeRepository;
+        this.userRepository = userRepository;
         this.redisTemplate = redisTemplate;
     }
 
@@ -130,6 +136,19 @@ public class LeaderboardService {
         List<LeaderboardEntryResponse> leaderboard = new ArrayList<>();
         int rank = 1;
 
+        Map<Long, String> userNamesById = Map.of();
+        if (leaderboardSet != null && !leaderboardSet.isEmpty()) {
+            List<Long> userIds = leaderboardSet.stream()
+                .map(entry -> ((String) entry.getValue()).split(":"))
+                .filter(parts -> parts.length >= 2)
+                .map(parts -> Long.parseLong(parts[0]))
+                .distinct()
+                .collect(Collectors.toList());
+
+            userNamesById = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getUserId, User::getFullName));
+        }
+
         if (leaderboardSet != null) {
             for (ZSetOperations.TypedTuple<Object> entry : leaderboardSet) {
                 String member = (String) entry.getValue();
@@ -138,7 +157,8 @@ public class LeaderboardService {
                 String[] parts = member.split(":");
                 Long userId = Long.parseLong(parts[0]);
                 Long metricId = Long.parseLong(parts[1]);
-                leaderboard.add(new LeaderboardEntryResponse(rank, userId, metricId, score));
+                String fullName = userNamesById.getOrDefault(userId, "Unknown User");
+                leaderboard.add(new LeaderboardEntryResponse(rank, userId, fullName, metricId, score));
                 rank++;
             }
         }

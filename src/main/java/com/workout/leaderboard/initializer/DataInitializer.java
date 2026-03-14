@@ -103,19 +103,19 @@ public class DataInitializer implements CommandLineRunner {
         var challenge3 = challenges.size() > 2 ? challenges.get(2) : null;
 
         // Challenge 1 - User 1
-        if (challenge1 != null && stepMetric != null) {
-            ChallengeEvent event1 = new ChallengeEvent(challenge1, 1L, stepMetric, 5000.0, now.minusDays(5));
-            event1.setEventId(eventId++);
-            challengeEventRepository.save(event1);
+        // if (challenge1 != null && stepMetric != null) {
+        //     ChallengeEvent event1 = new ChallengeEvent(challenge1, 1L, stepMetric, 5000.0, now.minusDays(5));
+        //     event1.setEventId(eventId++);
+        //     challengeEventRepository.save(event1);
             
-            ChallengeEvent event2 = new ChallengeEvent(challenge1, 1L, stepMetric, 8000.0, now.minusDays(4));
-            event2.setEventId(eventId++);
-            challengeEventRepository.save(event2);
+        //     ChallengeEvent event2 = new ChallengeEvent(challenge1, 1L, stepMetric, 8000.0, now.minusDays(4));
+        //     event2.setEventId(eventId++);
+        //     challengeEventRepository.save(event2);
             
-            ChallengeEvent event3 = new ChallengeEvent(challenge1, 1L, stepMetric, 12000.0, now.minusDays(3));
-            event3.setEventId(eventId++);
-            challengeEventRepository.save(event3);
-        }
+        //     ChallengeEvent event3 = new ChallengeEvent(challenge1, 1L, stepMetric, 12000.0, now.minusDays(3));
+        //     event3.setEventId(eventId++);
+        //     challengeEventRepository.save(event3);
+        // }
 
         // Challenge 1 - User 2
         if (challenge1 != null && stepMetric != null) {
@@ -172,13 +172,7 @@ public class DataInitializer implements CommandLineRunner {
         var calorieMetric = metrics.stream().filter(m -> m.getName().equals("Calories Burned")).findFirst().orElse(null);
         var distanceMetric = metrics.stream().filter(m -> m.getName().equals("Distance Covered")).findFirst().orElse(null);
 
-        // Challenge 1 - User 1 - Steps
-        if (stepMetric != null) {
-            ChallengeUserMetricTotal total = new ChallengeUserMetricTotal(
-                    1L, 1L, stepMetric, 25000.0, now
-            );
-            challengeUserMetricTotalRepository.save(total);
-        }
+
 
         // Challenge 1 - User 2 - Steps
         if (stepMetric != null) {

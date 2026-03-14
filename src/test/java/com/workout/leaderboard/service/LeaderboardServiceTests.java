@@ -10,12 +10,14 @@ import com.workout.leaderboard.entity.ChallengeEvent;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotal;
 import com.workout.leaderboard.entity.ChallengeUserMetricTotalId;
 import com.workout.leaderboard.entity.Metric;
+import com.workout.leaderboard.entity.User;
 import com.workout.leaderboard.exception.BadRequestException;
 import com.workout.leaderboard.exception.ResourceNotFoundException;
 import com.workout.leaderboard.repository.ChallengeEventRepository;
 import com.workout.leaderboard.repository.ChallengeRepository;
 import com.workout.leaderboard.repository.ChallengeUserMetricTotalRepository;
 import com.workout.leaderboard.repository.MetricRepository;
+import com.workout.leaderboard.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -55,6 +57,9 @@ class LeaderboardServiceTests {
 
     @Mock
     private ChallengeRepository challengeRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private RedisTemplate<String, Object> redisTemplate;
@@ -167,6 +172,8 @@ class LeaderboardServiceTests {
         tuples.add(new DefaultTypedTuple<>("21:30", 75.0));
         when(zSetOperations.reverseRangeByScoreWithScores("challenge:10:leaderboard", 0, Double.MAX_VALUE))
                 .thenReturn(tuples);
+        when(userRepository.findAllById(List.of(20L, 21L)))
+            .thenReturn(List.of(user(20L, "Alice Runner"), user(21L, "Bob Lifter")));
 
         LeaderboardResponse response = leaderboardService.getLeaderboard(10L);
 
@@ -174,9 +181,30 @@ class LeaderboardServiceTests {
         assertEquals(2, response.getCount());
         assertEquals(1, response.getLeaderboard().get(0).getRank());
         assertEquals(20L, response.getLeaderboard().get(0).getUserId());
+        assertEquals("Alice Runner", response.getLeaderboard().get(0).getFullName());
         assertEquals(90.0, response.getLeaderboard().get(0).getAggregatedScore());
         assertEquals(2, response.getLeaderboard().get(1).getRank());
         assertEquals(21L, response.getLeaderboard().get(1).getUserId());
+        assertEquals("Bob Lifter", response.getLeaderboard().get(1).getFullName());
+    }
+
+    @Test
+    void getLeaderboardUsesUnknownUserWhenNameNotFound() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+
+        Challenge challenge = challenge(10L, "Summer Challenge");
+        when(challengeRepository.findById(10L)).thenReturn(Optional.of(challenge));
+
+        Set<ZSetOperations.TypedTuple<Object>> tuples = new LinkedHashSet<>();
+        tuples.add(new DefaultTypedTuple<>("50:30", 42.0));
+        when(zSetOperations.reverseRangeByScoreWithScores("challenge:10:leaderboard", 0, Double.MAX_VALUE))
+                .thenReturn(tuples);
+        when(userRepository.findAllById(List.of(50L))).thenReturn(List.of());
+
+        LeaderboardResponse response = leaderboardService.getLeaderboard(10L);
+
+        assertEquals(1, response.getCount());
+        assertEquals("Unknown User", response.getLeaderboard().get(0).getFullName());
     }
 
     @Test
@@ -246,5 +274,14 @@ class LeaderboardServiceTests {
         metric.setName(name);
         metric.setAggregationType("SUM");
         return metric;
+    }
+
+    private User user(Long id, String fullName) {
+        User user = new User();
+        user.setUserId(id);
+        user.setFullName(fullName);
+        user.setEmail(fullName.toLowerCase().replace(" ", ".") + "@example.com");
+        user.setPassword("encoded-password");
+        return user;
     }
 }
