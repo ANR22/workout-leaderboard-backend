@@ -16,7 +16,7 @@ This project models fitness challenges (for example, steps, calories, distance) 
 - The Redis leaderboard cache (`challenge:{challengeId}:leaderboard`).
 
 This hybrid approach gives:
-- Durable history and aggregation state in H2/JPA.
+- Durable history and aggregation state in PostgreSQL/JPA.
 - Fast rank retrieval from Redis.
 
 ## Tech Stack
@@ -24,7 +24,7 @@ This hybrid approach gives:
 - Java 21
 - Spring Boot 4.0.2
 - Spring Web MVC
-- Spring Data JPA (H2 in-memory DB)
+- Spring Data JPA (PostgreSQL)
 - Spring Data Redis + Jedis
 - Spring Security + JWT (`jjwt`)
 - Gradle
@@ -49,7 +49,7 @@ flowchart LR
     Client[Client App] --> Controller[REST Controllers]
     Controller --> Service[Service Layer]
     Service --> JPA[Spring Data JPA Repositories]
-    JPA --> H2[(H2 Database)]
+    JPA --> Postgres[(PostgreSQL)]
     Service --> RedisOps[RedisTemplate / ZSET]
     RedisOps --> Redis[(Redis)]
 
@@ -186,6 +186,7 @@ Mapped exceptions include:
 ### 1. Prerequisites
 
 - JDK 21
+- Docker
 - Redis running locally on port `6379`
 - Unix shell (Linux/macOS) or equivalent Windows setup
 
@@ -198,20 +199,23 @@ cd workout-leaderboard-backend
 
 If your local folder name is `leaderboard`, run commands from that directory.
 
-### 3. Start Redis
+### 3. Start Infrastructure (Redis + PostgreSQL)
 
-Option A: Local Redis service.
-
-Option B: Docker:
+Use Docker Compose (includes a named volume for PostgreSQL persistence):
 
 ```bash
-docker run --name leaderboard-redis -p 6379:6379 -d redis:7
+docker compose up -d
 ```
+
+This creates:
+- `postgres` on `localhost:5432`
+- `redis` on `localhost:6379` (if already running elsewhere, adjust compose as needed)
+- `postgres_data` named volume mounted to `/var/lib/postgresql/data`
 
 ### 4. Configure Application (optional)
 
 Default config is in `src/main/resources/application.properties`:
-- H2 in-memory DB (`jdbc:h2:mem:testdb`)
+- PostgreSQL (`jdbc:postgresql://localhost:5432/leaderboard`)
 - Redis host `localhost:6379`
 - JWT secret and expiration
 
@@ -237,13 +241,12 @@ Run only tests:
 ./gradlew test
 ```
 
-### 7. Access H2 Console
+### 7. Verify PostgreSQL Persistence
 
-When app is running:
-- URL: `http://localhost:8080/h2-console`
-- JDBC URL: `jdbc:h2:mem:testdb`
-- User: `sa`
-- Password: (empty)
+1. Start the app and submit data.
+2. Stop app + containers.
+3. Start again with `docker compose up -d` and `./gradlew bootRun`.
+4. Data remains because PostgreSQL uses `postgres_data` volume.
 
 ## Seed Data
 
@@ -253,7 +256,7 @@ On startup, `DataInitializer` inserts:
 - multiple challenge events
 - precomputed totals for sample users
 
-This makes leaderboard endpoints usable immediately in local development.
+The initializer is kept enabled and is idempotent: it seeds only when the database is empty.
 
 ## Example cURL
 
@@ -305,6 +308,7 @@ src/main/java/com/workout/leaderboard/
 
 ## Notes
 
-- Current setup uses in-memory H2 (`create-drop`), so data resets on restart.
+- Runtime datasource is PostgreSQL with `spring.jpa.hibernate.ddl-auto=update`.
+- Tests use in-memory H2 via `src/test/resources/application.properties` for fast local and CI builds.
 - Leaderboard read endpoint accepts `limit` query parameter but currently returns all ranked entries.
 - For production, use persistent database, stronger secret management, and stricter CORS rules.
